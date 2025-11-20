@@ -19,12 +19,13 @@ def get_embedding(text):
     if not text:
         return np.array([])
     embeddings = embedding_model.encode([text], convert_to_numpy=True)
-    # Apply L2 normalization, adding a small epsilon to prevent division by zero
+    
+    # Apply L2 normalization
     norm = np.linalg.norm(embeddings[0])
-    # Handle case where norm is zero (e.g., for very short or non-meaningful text that might result in a zero vector)
-    if norm == 0:
-        return np.zeros_like(embeddings[0])
-    normalized_embedding = embeddings[0] / (norm + 1e-12) # Add a small epsilon
+    # Handle case where norm is very close to zero to prevent division by zero
+    if norm < 1e-12: # Use a small threshold instead of exact zero comparison
+        return np.zeros_like(embeddings[0]) # Return a zero vector if the original is near-zero
+    normalized_embedding = embeddings[0] / norm
     return normalized_embedding
 
 def read_pdf(uploaded_file):
@@ -74,12 +75,13 @@ def build_faiss_index(chunks):
 
     # Encode embeddings
     chunk_embeddings_raw = embedding_model.encode(valid_chunks, convert_to_numpy=True)
-    
-    # Apply L2 normalization to all embeddings at once, adding a small epsilon to prevent division by zero
+
+    # Apply L2 normalization to all embeddings at once
     norms = np.linalg.norm(chunk_embeddings_raw, axis=1, keepdims=True)
-    # Replace zero norms with 1 (or a small epsilon) to prevent division by zero
-    norms[norms == 0] = 1.0 # If a vector is all zeros, dividing by 1 will keep it as zeros
-    chunk_embeddings = chunk_embeddings_raw / (norms + 1e-12) # Add a small epsilon
+    # Handle very small norms: replace with 1.0 to prevent division by zero.
+    # This ensures that if a raw embedding was effectively a zero vector, it remains a zero vector after normalization.
+    norms[norms < 1e-12] = 1.0 
+    chunk_embeddings = chunk_embeddings_raw / norms
 
     if chunk_embeddings.shape[0] == 0:
         return None, []
