@@ -84,7 +84,7 @@ def build_faiss_index(chunks):
     return index, valid_chunks
 
 # --- Streamlit UI ---
-st.title("PDF RAG Chatbot (Hugging Face Embeddings)")
+st.title("PDF RAG Chatbot (Hugging Face Embeddings) satyam")
 
 st.markdown("Upload a PDF, then ask questions to retrieve relevant passages.")
 
