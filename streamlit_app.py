@@ -15,22 +15,24 @@ def load_embedding_model():
 embedding_model = load_embedding_model()
 
 def get_embedding(text):
-    """Generates embeddings for a given text using the SentenceTransformer model, and applies L2 normalization."""
+    """Generates embeddings for a given text using the SentenceTransformer model, and applies L2 normalization.
+    Includes safety checks for empty/short text and near-zero norm embeddings.
+    """
     # 1. Do not embed empty strings or whitespace-only chunks, and add length check
     if not text or len(text.strip()) < 5:
         return np.array([])
-    
+
     embeddings = embedding_model.encode([text], convert_to_numpy=True)
-    
+
     # 3. Before normalization, check if the vector is all zeros or has norm < 1e-8.
     norm = np.linalg.norm(embeddings[0])
-    
+
     # 4. If the vector has near-zero norm, return a zero vector (effectively skipping it for retrieval)
     if norm < 1e-8: # Use 1e-8 as requested
         return np.zeros_like(embeddings[0]) # Return a zero vector for non-meaningful inputs
-        
+
     # 5. Use safe normalization: vector / (norm + 1e-8)
-    normalized_embedding = embeddings[0] / (norm + 1e-8) 
+    normalized_embedding = embeddings[0] / (norm + 1e-8)
     return normalized_embedding
 
 def read_pdf(uploaded_file):
@@ -83,7 +85,7 @@ def chunk_text(text, chunk_size=500, chunk_overlap=50):
 def build_faiss_index(chunks):
     """
     Generates L2-normalized embeddings for text chunks and builds a FAISS IndexFlatIP.
-    Includes safety checks for near-zero norm embeddings.
+    Includes safety checks for near-zero norm embeddings, ensuring FAISS index and indexed_chunks are in sync.
     """
     if not chunks:
         return None, []
@@ -99,10 +101,9 @@ def build_faiss_index(chunks):
     for i, raw_embedding in enumerate(chunk_embeddings_raw):
         norm = np.linalg.norm(raw_embedding)
         
-        # 3. Check if the vector has near-zero norm (using 1e-8 as requested)
+        # 3. Check if the vector is all zeros or has norm < 1e-8.
+        # 4. If the vector has near-zero norm, skip the chunk from indexing.
         if norm < 1e-8:
-            # 4. If near-zero norm, skip the chunk from indexing.
-            # This prevents zero/corrupted vectors from entering the index.
             st.warning(f"Skipping chunk due to near-zero embedding norm: '{chunks[i][:50]}...' ")
             continue
         
@@ -115,13 +116,16 @@ def build_faiss_index(chunks):
         st.warning("No valid embeddings to build index from after filtering near-zero norm vectors.")
         return None, []
 
+    # Ensure final_embeddings_to_index is a 2D array for FAISS
     final_embeddings_to_index = np.array(final_embeddings_to_index).astype('float32')
     embedding_dim = final_embeddings_to_index.shape[1]
     
     # Use IndexFlatIP for cosine similarity (since embeddings are L2 normalized)
     index = faiss.IndexFlatIP(embedding_dim)
     index.add(final_embeddings_to_index)
-
+    
+    # 1. FAISS index and chunks metadata always have exactly the same length.
+    # This is ensured here as final_chunks_for_index only contains chunks for which an embedding was successfully added.
     return index, final_chunks_for_index
 
 # --- Streamlit UI ---
@@ -132,13 +136,14 @@ st.markdown("Upload a PDF, then ask questions to retrieve relevant passages.")
 uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
 
 if uploaded_file is not None:
-    if 'faiss_index' not in st.session_state or 'chunks' not in st.session_state or uploaded_file.name != st.session_state.get('uploaded_file_name'):
+    # Only reprocess if file changes or session state is empty
+    if 'faiss_index' not in st.session_state or 'indexed_chunks' not in st.session_state or uploaded_file.name != st.session_state.get('uploaded_file_name'):
         st.session_state['uploaded_file_name'] = uploaded_file.name
         with st.spinner("Processing PDF and building index..."):
             raw_text = read_pdf(uploaded_file)
             if raw_text:
-                st.session_state['chunks'] = chunk_text(raw_text) # Uses the improved chunk_text
-                st.session_state['faiss_index'], st.session_state['indexed_chunks'] = build_faiss_index(st.session_state['chunks'])
+                all_chunks = chunk_text(raw_text) # all_chunks contains pre-validated, unique chunks
+                st.session_state['faiss_index'], st.session_state['indexed_chunks'] = build_faiss_index(all_chunks)
                 if st.session_state['faiss_index']:
                     st.success(f"PDF processed! Indexed {len(st.session_state['indexed_chunks'])} text chunks.")
                 else:
@@ -146,37 +151,46 @@ if uploaded_file is not None:
             else:
                 st.error("Could not process the PDF. Please try another file.")
                 st.session_state['faiss_index'] = None
-                st.session_state['chunks'] = []
-                st.session_state['indexed_chunks'] = []
+                st.session_state['chunks'] = [] # Keep original 'chunks' as raw output of chunk_text for debugging if needed
+                st.session_state['indexed_chunks'] = [] # This is the list synced with FAISS
     else:
         st.info("PDF already processed.")
 
-    if st.session_state.get('faiss_index'):
+    if st.session_state.get('faiss_index') and st.session_state['indexed_chunks']:
         question = st.text_input("Ask a question about the PDF:")
         if question:
             with st.spinner("Searching for relevant information..."):
                 question_embedding = get_embedding(question)
                 
-                # 7. Ensure retrieval does not return empty or zero-vector chunks
-                # (This is implicitly handled because get_embedding returns np.array([]) or a zero vector
-                # for problematic queries, and build_faiss_index skips problematic chunks.)
-                if question_embedding.size > 0 and np.linalg.norm(question_embedding) > 1e-8: # Check for non-zero query embedding
-                    D, I = st.session_state['faiss_index'].search(np.array([question_embedding]).astype('float32'), k=3) # Retrieve top 3
-                    st.subheader("Relevant Passages:")
-                    for rank, idx in enumerate(I[0]):
-                        # Add boundary check for idx
-                        if 0 <= idx < len(st.session_state['indexed_chunks']):
-                            # D contains cosine similarity scores (inner product of L2 normalized vectors)
-                            # Clip values to be within [-1, 1] for display in case of minor floating point inaccuracies
-                            display_score = np.clip(D[0][rank], -1.0, 1.0)
-                            st.write(f"**Passage {rank+1}:** (Cosine Similarity: {display_score:.4f})")
-                            st.info(st.session_state['indexed_chunks'][idx]) # Use indexed_chunks here
-                        else:
-                            st.warning(f"Passage {rank+1} skipped: Invalid index {idx} returned by FAISS. This may indicate an inconsistency in the FAISS index or indexed chunks.")
+                # 7. Ensure retrieval does not return empty or zero-vector chunks.
+                # Check for non-zero query embedding (norm > 1e-8 means it's a meaningful vector)
+                if question_embedding.size > 0 and np.linalg.norm(question_embedding) > 1e-8:
+                    # 6. If top_k > available vectors, automatically lower top_k.
+                    requested_k = 3 # Original request for top 3
+                    num_available_vectors = st.session_state['faiss_index'].ntotal
+                    retrieval_k = min(requested_k, num_available_vectors)
+
+                    if retrieval_k == 0:
+                        st.warning("No vectors available in the index to search. Please upload a PDF with content.")
+                    else:
+                        # Search with the normalized question embedding
+                        D, I = st.session_state['faiss_index'].search(np.array([question_embedding]).astype('float32'), k=retrieval_k) 
+                        st.subheader("Relevant Passages:")
+                        for rank, idx in enumerate(I[0]):
+                            # 7. Retrieval never returns index -1. (Handled by adjusting retrieval_k, but defensive check remains)
+                            if idx != -1 and 0 <= idx < len(st.session_state['indexed_chunks']):
+                                # D contains cosine similarity scores (inner product of L2 normalized vectors)
+                                # Clip values to be within [-1, 1] for display in case of minor floating point inaccuracies
+                                display_score = np.clip(D[0][rank], -1.0, 1.0)
+                                st.write(f"**Passage {rank+1}:** (Cosine Similarity: {display_score:.4f})")
+                                st.info(st.session_state['indexed_chunks'][idx]) # Use indexed_chunks here
+                            else:
+                                # This case should ideally not be hit with dynamic retrieval_k and robust indexing
+                                st.warning(f"Passage {rank+1} skipped: Invalid index {idx} returned by FAISS. This indicates an unexpected issue with the index or retrieval.")
                 else:
                     st.warning("Could not generate a meaningful embedding for your question. Please try a more descriptive query.")
     else:
-        st.warning("Please upload and process a PDF first.")
+        st.warning("Please upload and process a PDF first or ensure it contains valid content.")
 
 else:
     st.info("Awaiting PDF upload.")
