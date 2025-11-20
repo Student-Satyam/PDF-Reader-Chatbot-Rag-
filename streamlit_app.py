@@ -19,8 +19,12 @@ def get_embedding(text):
     if not text:
         return np.array([])
     embeddings = embedding_model.encode([text], convert_to_numpy=True)
-    # Apply L2 normalization
-    normalized_embedding = embeddings[0] / np.linalg.norm(embeddings[0])
+    # Apply L2 normalization, adding a small epsilon to prevent division by zero
+    norm = np.linalg.norm(embeddings[0])
+    # Handle case where norm is zero (e.g., for very short or non-meaningful text that might result in a zero vector)
+    if norm == 0:
+        return np.zeros_like(embeddings[0])
+    normalized_embedding = embeddings[0] / (norm + 1e-12) # Add a small epsilon
     return normalized_embedding
 
 def read_pdf(uploaded_file):
@@ -68,10 +72,14 @@ def build_faiss_index(chunks):
         st.warning("No valid chunks found to build index from.")
         return None, []
 
-    # Encode and normalize embeddings
+    # Encode embeddings
     chunk_embeddings_raw = embedding_model.encode(valid_chunks, convert_to_numpy=True)
-    # Apply L2 normalization to all embeddings at once
-    chunk_embeddings = chunk_embeddings_raw / np.linalg.norm(chunk_embeddings_raw, axis=1, keepdims=True)
+    
+    # Apply L2 normalization to all embeddings at once, adding a small epsilon to prevent division by zero
+    norms = np.linalg.norm(chunk_embeddings_raw, axis=1, keepdims=True)
+    # Replace zero norms with 1 (or a small epsilon) to prevent division by zero
+    norms[norms == 0] = 1.0 # If a vector is all zeros, dividing by 1 will keep it as zeros
+    chunk_embeddings = chunk_embeddings_raw / (norms + 1e-12) # Add a small epsilon
 
     if chunk_embeddings.shape[0] == 0:
         return None, []
@@ -84,7 +92,7 @@ def build_faiss_index(chunks):
     return index, valid_chunks
 
 # --- Streamlit UI ---
-st.title("PDF RAG Chatbot (Hugging Face Embeddings) satyam")
+st.title("PDF RAG Chatbot (Hugging Face Embeddings)")
 
 st.markdown("Upload a PDF, then ask questions to retrieve relevant passages.")
 
@@ -118,7 +126,9 @@ if uploaded_file is not None:
                     st.subheader("Relevant Passages:")
                     for rank, idx in enumerate(I[0]):
                         # D contains cosine similarity scores (inner product of L2 normalized vectors)
-                        st.write(f"**Passage {rank+1}:** (Cosine Similarity: {D[0][rank]:.4f})")
+                        # Clip values to be within [-1, 1] for display in case of minor floating point inaccuracies
+                        display_score = np.clip(D[0][rank], -1.0, 1.0)
+                        st.write(f"**Passage {rank+1}:** (Cosine Similarity: {display_score:.4f})")
                         st.info(st.session_state['chunks'][idx])
                 else:
                     st.warning("Could not generate embedding for your question.")
