@@ -15,11 +15,13 @@ def load_embedding_model():
 embedding_model = load_embedding_model()
 
 def get_embedding(text):
-    """Generates embeddings for a given text using the SentenceTransformer model."""
+    """Generates embeddings for a given text using the SentenceTransformer model, and applies L2 normalization."""
     if not text:
         return np.array([])
     embeddings = embedding_model.encode([text], convert_to_numpy=True)
-    return embeddings[0]
+    # Apply L2 normalization
+    normalized_embedding = embeddings[0] / np.linalg.norm(embeddings[0])
+    return normalized_embedding
 
 def read_pdf(uploaded_file):
     """Reads text from an uploaded PDF file-like object."""
@@ -55,7 +57,7 @@ def chunk_text(text, chunk_size=500, chunk_overlap=50):
 
 def build_faiss_index(chunks):
     """
-    Generates embeddings for text chunks and builds a FAISS index.
+    Generates L2-normalized embeddings for text chunks and builds a FAISS IndexFlatIP.
     """
     if not chunks:
         return None, []
@@ -66,13 +68,17 @@ def build_faiss_index(chunks):
         st.warning("No valid chunks found to build index from.")
         return None, []
 
-    chunk_embeddings = embedding_model.encode(valid_chunks, convert_to_numpy=True)
+    # Encode and normalize embeddings
+    chunk_embeddings_raw = embedding_model.encode(valid_chunks, convert_to_numpy=True)
+    # Apply L2 normalization to all embeddings at once
+    chunk_embeddings = chunk_embeddings_raw / np.linalg.norm(chunk_embeddings_raw, axis=1, keepdims=True)
 
     if chunk_embeddings.shape[0] == 0:
         return None, []
 
     embedding_dim = chunk_embeddings.shape[1]
-    index = faiss.IndexFlatL2(embedding_dim)
+    # Use IndexFlatIP for cosine similarity (since embeddings are L2 normalized)
+    index = faiss.IndexFlatIP(embedding_dim)
     index.add(chunk_embeddings.astype('float32'))
 
     return index, valid_chunks
@@ -104,12 +110,15 @@ if uploaded_file is not None:
         question = st.text_input("Ask a question about the PDF:")
         if question:
             with st.spinner("Searching for relevant information..."):
+                # Ensure question embedding is also L2 normalized
                 question_embedding = get_embedding(question)
                 if question_embedding.size > 0:
+                    # Search with the normalized question embedding
                     D, I = st.session_state['faiss_index'].search(np.array([question_embedding]).astype('float32'), k=3) # Retrieve top 3
                     st.subheader("Relevant Passages:")
                     for rank, idx in enumerate(I[0]):
-                        st.write(f"**Passage {rank+1}:** (Similarity Score: {D[0][rank]:.2f})")
+                        # D contains cosine similarity scores (inner product of L2 normalized vectors)
+                        st.write(f"**Passage {rank+1}:** (Cosine Similarity: {D[0][rank]:.4f})")
                         st.info(st.session_state['chunks'][idx])
                 else:
                     st.warning("Could not generate embedding for your question.")
