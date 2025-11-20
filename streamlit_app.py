@@ -164,11 +164,15 @@ if uploaded_file is not None:
                     D, I = st.session_state['faiss_index'].search(np.array([question_embedding]).astype('float32'), k=3) # Retrieve top 3
                     st.subheader("Relevant Passages:")
                     for rank, idx in enumerate(I[0]):
-                        # D contains cosine similarity scores (inner product of L2 normalized vectors)
-                        # Clip values to be within [-1, 1] for display in case of minor floating point inaccuracies
-                        display_score = np.clip(D[0][rank], -1.0, 1.0)
-                        st.write(f"**Passage {rank+1}:** (Cosine Similarity: {display_score:.4f})")
-                        st.info(st.session_state['indexed_chunks'][idx]) # Use indexed_chunks here
+                        # Add boundary check for idx
+                        if 0 <= idx < len(st.session_state['indexed_chunks']):
+                            # D contains cosine similarity scores (inner product of L2 normalized vectors)
+                            # Clip values to be within [-1, 1] for display in case of minor floating point inaccuracies
+                            display_score = np.clip(D[0][rank], -1.0, 1.0)
+                            st.write(f"**Passage {rank+1}:** (Cosine Similarity: {display_score:.4f})")
+                            st.info(st.session_state['indexed_chunks'][idx]) # Use indexed_chunks here
+                        else:
+                            st.warning(f"Passage {rank+1} skipped: Invalid index {idx} returned by FAISS. This may indicate an inconsistency in the FAISS index or indexed chunks.")
                 else:
                     st.warning("Could not generate a meaningful embedding for your question. Please try a more descriptive query.")
     else:
