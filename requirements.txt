@@ -1,6 +1,5 @@
 streamlit
 sentence-transformers
 faiss-cpu
-Pygments
-pyPDF2
+PyPDF2
 torch
