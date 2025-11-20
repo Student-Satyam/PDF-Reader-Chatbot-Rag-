@@ -1,56 +1,40 @@
-# PDF RAG Chatbot with Streamlit and Hugging Face Embeddings
+# RAG PDF Chatbot
 
-This project implements a Retrieval Augmented Generation (RAG) chatbot using Streamlit, allowing users to upload a PDF document and then ask questions about its content. The chatbot uses Hugging Face's `sentence-transformers` for generating L2-normalized text embeddings and FAISS for efficient cosine similarity search to retrieve relevant passages.
+A Retrieval-Augmented Generation (RAG) based chatbot that can read any PDF and answer questions based on its content. This project demonstrates how AI models can combine **document retrieval** with **answer generation** for accurate, context-aware responses.
+
+---
 
 ## Features
-- Upload PDF documents.
-- Automatically processes PDF text into chunks and builds a searchable FAISS index.
-- Ask questions and retrieve the most relevant passages from the uploaded PDF.
-- Utilizes L2 normalization for embeddings and `faiss.IndexFlatIP` for accurate cosine similarity search.
-- Built with Streamlit for an interactive web interface.
 
-## Getting Started
+- ✅ Upload and process any PDF file  
+- ✅ Chunking of PDF content for efficient retrieval  
+- ✅ Embedding with vector representations (using Python embeddings + FAISS)  
+- ✅ Retrieval of relevant passages for question answering  
+- ✅ Summarization and multi-fact answering  
+- ✅ Handles multiple queries without hallucination  
 
-### Prerequisites
-Make sure you have Python 3.8+ installed.
+---
 
-### Local Installation and Running
-1.  **Create project files:**
-    Create a directory for your project.
+## How it Works
 
-2.  **Create `streamlit_app.py`:**
-    Save the Streamlit application code (the Python code you provided) as `streamlit_app.py` in your project directory.
+1. **PDF Processing:** Reads PDF content and splits it into manageable chunks.  
+2. **Embedding:** Each chunk is converted into a vector embedding. Embeddings are normalized for accurate similarity calculation.  
+3. **Vector Storage:** Chunks and embeddings are stored in **FAISS** for fast retrieval.  
+4. **Retrieval + Generation:** User asks a question → system retrieves top relevant chunks → language model generates answer based on retrieved content.  
 
-3.  **Create `requirements.txt`:**
-    Create a file named `requirements.txt` in the same directory with the following content:
-    ```
-    streamlit
-    sentence-transformers
-    faiss-cpu
-    PyPDF2
-torch
-    ```
+---
 
-4.  **Install dependencies:**
-    Open your terminal or command prompt, navigate to your project directory, and run:
-    ```bash
-    pip install -r requirements.txt
-    ```
+## Installation
 
-5.  **Run the Streamlit app:**
-    ```bash
-    streamlit run streamlit_app.py
-    ```
-    Your browser will automatically open to the Streamlit app (usually at `http://localhost:8501`).
+```bash
+# Clone the repo
+git clone https://github.com/your-username/rag-pdf-chatbot.git
+cd rag-pdf-chatbot
 
-### Usage
-1.  **Upload a PDF:** Use the file uploader widget to select a PDF document.
-2.  **Wait for Processing:** The app will process the PDF, chunk the text, and build a FAISS index. A success message will appear once completed.
-3.  **Ask a Question:** Enter your question related to the PDF content in the text input field.
-4.  **View Relevant Passages:** The app will display the top relevant passages from the PDF, along with their cosine similarity scores.
+# Create a virtual environment (optional)
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+venv\Scripts\activate     # Windows
 
-## Hugging Face API Token
-
-For this specific project using `all-MiniLM-L6-v2` from `sentence-transformers` (which is a public model), **you do not need a Hugging Face API token (`HF_TOKEN`)**.
-
-The model is publicly available and can be downloaded and used without authentication. If you were to use a private Hugging Face model or perform actions requiring authentication (like pushing models to the Hugging Face Hub), you would need to set the `HF_TOKEN` environment variable.
+# Install dependencies
+pip install -r requirements.txt
