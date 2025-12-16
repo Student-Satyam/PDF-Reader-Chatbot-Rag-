@@ -7,17 +7,18 @@ import io
 from transformers import pipeline
 
 # -----------------------------
-# Load Models
+# Load Models (SAFE FOR STREAMLIT CLOUD)
 # -----------------------------
 @st.cache_resource
 def load_models():
     embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+
     llm = pipeline(
-        "text-generation",
-        model="mistralai/Mistral-7B-Instruct-v0.1",
-        max_new_tokens=300,
-        temperature=0.3
+        "text2text-generation",
+        model="google/flan-t5-base",
+        max_new_tokens=200
     )
+
     return embed_model, llm
 
 embed_model, llm = load_models()
@@ -37,7 +38,7 @@ def chunk_text(text, chunk_size=400, overlap=50):
     words = text.split()
     chunks = []
     for i in range(0, len(words), chunk_size - overlap):
-        chunk = " ".join(words[i:i+chunk_size])
+        chunk = " ".join(words[i:i + chunk_size])
         if len(chunk) > 50:
             chunks.append(chunk)
     return chunks
@@ -57,7 +58,7 @@ def generate_answer(context, question):
     prompt = f"""
 You are a helpful teacher.
 
-Use ONLY the information below.
+Answer the question using ONLY the information below.
 Explain in very simple English like I am 5 years old.
 
 Information:
@@ -74,22 +75,25 @@ Answer:
 # -----------------------------
 # Streamlit UI
 # -----------------------------
-st.title("📘 Talk to Your PDF (Full RAG App)")
+st.title("📘 Talk to Your PDF (RAG App)")
 
-pdf = st.file_uploader("Upload PDF", type="pdf")
+pdf = st.file_uploader("Upload a PDF", type="pdf")
 
 if pdf:
-    text = read_pdf(pdf)
-    chunks = chunk_text(text)
-    index, stored_chunks = build_faiss(chunks)
-    st.success("PDF processed!")
+    with st.spinner("Processing PDF..."):
+        text = read_pdf(pdf)
+        chunks = chunk_text(text)
+        index, stored_chunks = build_faiss(chunks)
 
-    question = st.text_input("Ask a question:")
+    st.success("PDF processed successfully!")
+
+    question = st.text_input("Ask a question about the PDF:")
 
     if question:
-        retrieved = retrieve(question, index, stored_chunks)
-        context = "\n\n".join(retrieved)
-        answer = generate_answer(context, question)
+        with st.spinner("Generating answer..."):
+            retrieved = retrieve(question, index, stored_chunks)
+            context = "\n\n".join(retrieved)
+            answer = generate_answer(context, question)
 
         st.subheader("🧠 Answer")
         st.write(answer)
