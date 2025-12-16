@@ -75,7 +75,7 @@ Question:
 
 Answer:
 """
-    response = llm(prompt, max_new_tokens=100)
+    response = llm(prompt, max_new_tokens=500)
     return response[0]["generated_text"]
 
 # -----------------------------
