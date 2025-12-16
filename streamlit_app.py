@@ -16,7 +16,7 @@ def load_models():
     llm = pipeline(
         "text2text-generation",
         model="google/flan-t5-base",
-        max_new_tokens=200
+        max_new_tokens=100  # shorter answers
     )
 
     return embed_model, llm
@@ -27,6 +27,7 @@ embed_model, llm = load_models()
 # Helper Functions
 # -----------------------------
 def read_pdf(file):
+    """Extract text from a PDF file."""
     text = ""
     reader = PdfReader(io.BytesIO(file.read()))
     for page in reader.pages:
@@ -35,6 +36,7 @@ def read_pdf(file):
     return text
 
 def chunk_text(text, chunk_size=400, overlap=50):
+    """Split text into overlapping chunks."""
     words = text.split()
     chunks = []
     for i in range(0, len(words), chunk_size - overlap):
@@ -44,22 +46,26 @@ def chunk_text(text, chunk_size=400, overlap=50):
     return chunks
 
 def build_faiss(chunks):
+    """Build a FAISS index from text chunks."""
     embeddings = embed_model.encode(chunks, normalize_embeddings=True)
     index = faiss.IndexFlatIP(embeddings.shape[1])
     index.add(np.array(embeddings).astype("float32"))
     return index, chunks
 
 def retrieve(query, index, chunks, k=3):
+    """Retrieve top-k relevant chunks from FAISS index."""
     q_emb = embed_model.encode([query], normalize_embeddings=True)
     D, I = index.search(np.array(q_emb).astype("float32"), k)
     return [chunks[i] for i in I[0]]
 
 def generate_answer(context, question):
+    """Generate a simple, concise answer using the LLM."""
     prompt = f"""
-You are a helpful teacher.
+You are a very helpful teacher.
 
 Answer the question using ONLY the information below.
 Explain in very simple English like I am 5 years old.
+Use short sentences and simple words.
 
 Information:
 {context}
@@ -69,7 +75,7 @@ Question:
 
 Answer:
 """
-    response = llm(prompt)
+    response = llm(prompt, max_new_tokens=100)
     return response[0]["generated_text"]
 
 # -----------------------------
